@@ -4,6 +4,9 @@
   * @file           : main.c
   * @brief          : HTS1510 → dual-PWM demo (10 kHz) with watchdog & reset log
   ******************************************************************************
+/**
+ * @brief Prints the cause of the last MCU reset via UART
+ */
   * @attention
   *
   * Copyright (c) 2025 STMicroelectronics.
@@ -18,26 +21,26 @@
   * APPLICATION OVERVIEW:
   * - Two synchronous 10 kHz PWM outputs for 4-20mA current loop control
   *   • TIM1_CH1 → PA5: Temperature (-60°C to +50°C / -76°F to +122°F)
-  *   • TIM3_CH1 → PA6: Pressure (0 psi to 175 psi)
+  *   • TIM3_CH1 → PA6: Pressure (0 psia to 175 psia)
   * - HTS1510 I²C sensor on PB6/PB7 (100 kHz)
   * - UART diagnostics on PA0/PA1 (115200 baud)
   * - 4s watchdog timeout with continuous refresh
-  * - PWM resolution: 4800 codes → 0.0365 psi / 0.023 °C per LSB
+  * - PWM resolution: 4800 codes → 0.0365 psia / 0.023 °C per LSB
   * 
   * SIGNAL PROCESSING CHAIN:
   * 
   * Pressure Path:
   * 1. Raw ADC (0-32767) → Clamp to 10%-90% range (3277-29491)
   * 2. Scale to 0-1 fraction: (raw-10%)/(80%)
-  * 3. Convert to PSI: 0 + fraction × 175  (updated: 0-175 PSI range)
+  * 3. Convert to PSIA: 0 + fraction × 175  (updated: 0-175 PSIA range)
   * 4. Map to PWM duty: fraction × 4799 counts
   * 5. TIM3→PA6→XTR111→4-20mA current loop
   * 
   * Transfer Function Verification:
-  * - At 10% (3277): PSI = 0 + ((3277-3277)/26214)×175 = 0.00 PSI
-  * - At 50% (16384): PSI = 0 + ((16384-3277)/26214)×175 = 87.50 PSI  
-  * - At 90% (29491): PSI = 0 + ((29491-3277)/26214)×175 = 175.00 PSI
-  * - Your raw=7031: PSI = 0 + ((7031-3277)/26214)×175 = 25.05 PSI
+  * - At 10% (3277): PSIA = 0 + ((3277-3277)/26214)×175 = 0.00 PSIA
+  * - At 50% (16384): PSIA = 0 + ((16384-3277)/26214)×175 = 87.50 PSIA  
+  * - At 90% (29491): PSIA = 0 + ((29491-3277)/26214)×175 = 175.00 PSIA
+  * - Your raw=7031: PSIA = 0 + ((7031-3277)/26214)×175 = 25.05 PSIA
   * 
   * Temperature Path:
   * 1. Raw ADC (0-32767) → Direct linear conversion
@@ -63,6 +66,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
+
+/* Optional UART diagnostics */
+#ifndef ENABLE_LOGGING
+#define ENABLE_LOGGING 1
+#endif
+
+#if ENABLE_LOGGING
+#define LOG_PRINTF(...) printf(__VA_ARGS__)
+#else
+#define LOG_PRINTF(...)
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -87,8 +101,8 @@
 #define ADC_RAW_SPAN            (0.80f * ADC_FULL_SCALE)  /* 26214 = 80% span */
 
 /* Pressure range (datasheet-specified) */
-#define PRESS_MIN_PSI           0.0f        /* Changed from 1.0f to 0.0f */
-#define PRESS_MAX_PSI           175.0f
+#define PRESS_MIN_PSIA           0.0f        /* Changed from 1.0f to 0.0f */
+#define PRESS_MAX_PSIA           175.0f
 
 /* Temperature range and conversion constants */
 #define TEMP_MIN_C              -60.0f
@@ -132,12 +146,20 @@ static void MX_USART1_UART_Init(void);
 static void MX_IWDG_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
+/**
+ *  Print cause of last MCU reset via UART
+ */@
+
+/**
+ *  Prints the cause of the last MCU reset via UART
+ */
+
 static void print_reset_cause(void);
 static uint16_t hts_read_raw_word(const uint8_t cmd[3]);
-static float press_raw_to_psi(uint16_t raw);
+static float press_raw_to_psia(uint16_t raw);
 static float temp_raw_to_C(uint16_t raw);
 static float temp_C_to_F(float temp_c);
-static void pwm_update(float pressure_psi, float temperature_C);
+static void pwm_update(float pressure_psia, float temperature_C);
 int _write(int file, char *ptr, int len);
 /* USER CODE END PFP */
 
@@ -186,18 +208,14 @@ int main(void)
   print_reset_cause();
   
   /* Note about integer-only printf */
-  printf("Using integer-only printf (no float support needed)\r\n");
-  printf("Temperature displayed in Fahrenheit\r\n");
+  LOG_PRINTF("Using integer-only printf (no float support needed)\r\n");
+  LOG_PRINTF("Temperature displayed in Fahrenheit\r\n");
   
   /* Verify transfer function with your raw value */
-  printf("Transfer function check: raw=7031 should be ~25.1 PSI\r\n");
-  printf("Formula: PSI = 0 + ((raw-3277)/26214) × 175\r\n\r\n");
+  LOG_PRINTF("Transfer function check: raw=7031 should be ~25.1 PSIA\r\n");
+  LOG_PRINTF("Formula: PSIA = 0 + ((raw-3277)/26214) × 175\r\n\r\n");
   
-  /* Fix timer prescaler and period for 10 kHz PWM */
-  __HAL_TIM_SET_PRESCALER(&htim1, PWM_PRESCALER);
-  __HAL_TIM_SET_AUTORELOAD(&htim1, PWM_PERIOD);
-  __HAL_TIM_SET_PRESCALER(&htim3, PWM_PRESCALER);
-  __HAL_TIM_SET_AUTORELOAD(&htim3, PWM_PERIOD);
+
   
   /* Enable TIM1 main output (required for advanced timer) */
   __HAL_TIM_MOE_ENABLE(&htim1);
@@ -207,9 +225,9 @@ int main(void)
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
   
   /* Startup sweep (0→100→0 %) for visual self-test */
-  printf("\r\nStarting 9s PWM sweep (0-25-50-75-100-75-50-25-0%%)...\r\n");
+  LOG_PRINTF("\r\nStarting 9s PWM sweep (0-25-50-75-100-75-50-25-0%%)...\r\n");
   static const uint8_t startup_duty_pct[] = { 0, 25, 50, 75, 100, 75, 50, 25, 0 };
-  for (size_t i = 0; i < sizeof(startup_duty_pct); ++i)
+  for (size_t i = 0; i < sizeof(startup_duty_pct)/sizeof(startup_duty_pct[0]); ++i)
   {
     uint32_t ccr = (startup_duty_pct[i] * PWM_PERIOD) / 100U;
     __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, ccr);
@@ -217,14 +235,15 @@ int main(void)
     HAL_IWDG_Refresh(&hiwdg);
     HAL_Delay(STARTUP_STEP_MS);
   }
-  printf("Sweep complete - entering closed-loop sensor mode\r\n");
-  printf("Sensor data: 10Hz update, UART log: 2Hz\r\n\r\n");
+  LOG_PRINTF("Sweep complete - entering closed-loop sensor mode\r\n");
+  LOG_PRINTF("Sensor data: 10Hz update, UART log: 2Hz\r\n\r\n");
   
   /* Scheduler variables */
   uint32_t tick_next_sensor = HAL_GetTick();
-  uint32_t tick_next_log = HAL_GetTick();
+  /* Offset logging to avoid overlap with sensor reads */
+  uint32_t tick_next_log = tick_next_sensor + 50U;
   uint16_t raw_press = 0, raw_temp = 0;
-  float press_psi = 0.0f, temp_C = 0.0f, temp_F = 0.0f;
+  float press_psia = 0.0f, temp_C = 0.0f, temp_F = 0.0f;
 
   /* USER CODE END 2 */
 
@@ -242,12 +261,12 @@ int main(void)
       raw_temp = hts_read_raw_word(hts_cmd_temp);
       
       /* Stage 2: Convert to engineering units */
-      press_psi = press_raw_to_psi(raw_press);    /* Clamped to 10-90% range */
+      press_psia = press_raw_to_psia(raw_press);    /* Clamped to 10-90% range */
       temp_C = temp_raw_to_C(raw_temp);           /* Direct linear conversion */
       temp_F = temp_C_to_F(temp_C);               /* Convert to Fahrenheit */
       
       /* Stage 3: Update PWM outputs (0-100% duty → 4-20mA via XTR111) */
-      pwm_update(press_psi, temp_C);
+      pwm_update(press_psia, temp_C);
       
       /* Keep watchdog alive */
       HAL_IWDG_Refresh(&hiwdg);
@@ -258,19 +277,19 @@ int main(void)
     if ((int32_t)(tick_now - tick_next_log) >= 0)
     {
       /* Integer-only version to avoid printf float requirement */
-      int press_int = (int)press_psi;
-      int press_dec = (int)((press_psi - press_int) * 100);
+      int press_int = (int)press_psia;
+      int press_dec = (int)((press_psia - press_int) * 100);
       int temp_int = (int)temp_F;
       /* Use fabsf to handle decimal part correctly for negative temps */
       int temp_dec = (int)(fabsf((temp_F - temp_int)) * 10);
       
       /* Handle negative temperatures correctly */
       if (temp_F >= 0) {
-        printf("P=%3d.%02d psi (raw=%5u) | T=+%3d.%01d F (raw=%5u)\r\n",
-               press_int, press_dec, raw_press, temp_int, temp_dec, raw_temp);
+        LOG_PRINTF("P=%3d.%02d psia (raw=%5u) | T=+%3d.%01d F (raw=%5u)\r\n",
+                   press_int, press_dec, raw_press, temp_int, temp_dec, raw_temp);
       } else {
-        printf("P=%3d.%02d psi (raw=%5u) | T=%4d.%01d F (raw=%5u)\r\n",
-               press_int, press_dec, raw_press, temp_int, temp_dec, raw_temp);
+        LOG_PRINTF("P=%3d.%02d psia (raw=%5u) | T=%4d.%01d F (raw=%5u)\r\n",
+                   press_int, press_dec, raw_press, temp_int, temp_dec, raw_temp);
       }
       
       tick_next_log += LOG_PERIOD_MS;
@@ -418,9 +437,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
+  htim1.Init.Prescaler = PWM_PRESCALER;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 65535;
+  htim1.Init.Period = PWM_PERIOD;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -489,9 +508,9 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
+  htim3.Init.Prescaler = PWM_PRESCALER;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
+  htim3.Init.Period = PWM_PERIOD;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
@@ -585,54 +604,82 @@ static void MX_GPIO_Init(void)
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
-/* USER CODE BEGIN 4 */
-
+/**
+ * @brief Prints the cause of the last MCU reset via UART
+ */
 static void print_reset_cause(void)
 {
-  printf("\r\nReset cause:");
+  LOG_PRINTF("\r\nReset cause:");
   bool first = true;
 #ifdef RCC_FLAG_IWDGRST
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) { printf(" IWDG"); first = false; }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) { LOG_PRINTF(" IWDG"); first = false; }
 #endif
 #ifdef RCC_FLAG_PORRST
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))  { printf(first?" POR":" |POR"); first=false; }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))  { LOG_PRINTF(first?" POR":" |POR"); first=false; }
 #endif
 #ifdef RCC_FLAG_BORRST
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_BORRST))  { printf(first?" BOR":" |BOR"); first=false; }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_BORRST))  { LOG_PRINTF(first?" BOR":" |BOR"); first=false; }
 #endif
 #ifdef RCC_FLAG_PINRST
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PINRST))  { printf(first?" NRST":" |NRST"); first=false; }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PINRST))  { LOG_PRINTF(first?" NRST":" |NRST"); first=false; }
 #endif
 #ifdef RCC_FLAG_SFTRST
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST))  { printf(first?" SW":" |SW");   first=false; }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST))  { LOG_PRINTF(first?" SW":" |SW");   first=false; }
 #endif
-  if (first) printf(" Unknown");
-  printf("\r\n");
+  if (first) LOG_PRINTF(" Unknown");
+  LOG_PRINTF("\r\n");
   __HAL_RCC_CLEAR_RESET_FLAGS();
 }
 
+/**
+ * @brief Read a raw 16-bit word from the HTS1510 sensor
+ * @param cmd I2C command sequence for the desired measurement
+ * @return Raw ADC value (0-32767) or 0 on error
+ */
 static uint16_t hts_read_raw_word(const uint8_t cmd[3])
 {
-  if (HAL_I2C_Master_Transmit(&hi2c1, HTS1510_ADDR, (uint8_t*)cmd, 3, I2C_TIMEOUT_MS) != HAL_OK)
+  HAL_StatusTypeDef st;
+
+  st = HAL_I2C_Master_Transmit(&hi2c1, HTS1510_ADDR, (uint8_t*)cmd, 3, I2C_TIMEOUT_MS);
+  if (st != HAL_OK) {
+    LOG_PRINTF("I2C TX error %d\r\n", st);
     return 0;
-  HAL_Delay(10);  /* ~5 ms conversion time */
+  }
+
+  /* Poll for sensor ready instead of fixed delay */
+  uint32_t start = HAL_GetTick();
+  while (HAL_I2C_IsDeviceReady(&hi2c1, HTS1510_ADDR, 1, I2C_TIMEOUT_MS) != HAL_OK) {
+    if (HAL_GetTick() - start > 10) {
+      break;
+    }
+  }
+
   uint8_t rx[3] = {0};
-  if (HAL_I2C_Master_Receive(&hi2c1, HTS1510_ADDR, rx, 3, I2C_TIMEOUT_MS) != HAL_OK)
+  st = HAL_I2C_Master_Receive(&hi2c1, HTS1510_ADDR, rx, 3, I2C_TIMEOUT_MS);
+  if (st != HAL_OK) {
+    LOG_PRINTF("I2C RX error %d\r\n", st);
     return 0;
+  }
+
   return (uint16_t)((rx[1] << 8) | rx[2]);
 }
 
-static float press_raw_to_psi(uint16_t raw)
+/**
+ * @brief Convert raw HTS1510 ADC counts to pressure in PSIA
+ * @param raw Raw ADC value in counts
+ * @return Pressure in PSIA
+ */
+static float press_raw_to_psia(uint16_t raw)
 {
   /* HTS1510 Transfer Function per datasheet:
-   * Ppsi = Pmin + ((Pcounts - 0.1×Max) / (0.8×Max)) × (Pmax - Pmin)
+   * Ppsia = Pmin + ((Pcounts - 0.1×Max) / (0.8×Max)) × (Pmax - Pmin)
    * 
    * Where:
    * - Pcounts = raw ADC value (0-32767)
    * - Max = 32768 (15-bit full scale)
    * - 0.1×Max = 3276.8 (10% offset)
    * - 0.8×Max = 26214.4 (80% span)
-   * - Pmin = 0 PSI, Pmax = 175 PSI
+   * - Pmin = 0 PSIA, Pmax = 175 PSIA
    */
   
   /* Stage 1: Clamp raw ADC to guaranteed linear region (10%-90% FS) */
@@ -643,9 +690,14 @@ static float press_raw_to_psi(uint16_t raw)
   /* Stage 2: Apply transfer function */
   float pressure_fraction = (raw_float - ADC_RAW_MIN) / ADC_RAW_SPAN;
   
-  /* Stage 3: Scale to PSI range */
-  return PRESS_MIN_PSI + pressure_fraction * (PRESS_MAX_PSI - PRESS_MIN_PSI);
+  /* Stage 3: Scale to PSIA range */
+  return PRESS_MIN_PSIA + pressure_fraction * (PRESS_MAX_PSIA - PRESS_MIN_PSIA);
 }
+/**
+ * @brief Convert raw HTS1510 ADC counts to temperature in Celsius
+ * @param raw Raw ADC value
+ * @return Temperature in degrees Celsius
+ */
 
 static float temp_raw_to_C(uint16_t raw)
 {
@@ -653,16 +705,26 @@ static float temp_raw_to_C(uint16_t raw)
   return raw * TEMP_SCALE + TEMP_BIAS;
 }
 
+/**
+ * @brief Convert Celsius to Fahrenheit
+ * @param temp_c Temperature in degrees Celsius
+ * @return Temperature in degrees Fahrenheit
+ */
 static float temp_C_to_F(float temp_c)
 {
   /* Convert Celsius to Fahrenheit */
   return (temp_c * 9.0f / 5.0f) + 32.0f;
 }
 
-static void pwm_update(float pressure_psi, float temperature_C)
+/**
+ * @brief Update PWM duty cycles for pressure and temperature outputs
+ * @param pressure_psia Pressure value in PSIA
+ * @param temperature_C Temperature value in Celsius
+ */
+static void pwm_update(float pressure_psia, float temperature_C)
 {
   /* Pressure → TIM3/PA6 (for 4-20mA via XTR111) */
-  float frac_p = (pressure_psi - PRESS_MIN_PSI) / (PRESS_MAX_PSI - PRESS_MIN_PSI);
+  float frac_p = (pressure_psia - PRESS_MIN_PSIA) / (PRESS_MAX_PSIA - PRESS_MIN_PSIA);
   if (frac_p < 0.0f) frac_p = 0.0f;
   if (frac_p > 1.0f) frac_p = 1.0f;
   uint32_t ccr_p = (uint32_t)(frac_p * (float)PWM_PERIOD);
@@ -677,6 +739,13 @@ static void pwm_update(float pressure_psi, float temperature_C)
   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, ccr_p);
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, ccr_t);
 }
+/**
+ * @brief Retarget printf to UART1
+ * @param file Ignored
+ * @param ptr Pointer to data
+ * @param len Length of data
+ * @return Number of bytes transmitted
+ */
 
 int _write(int file, char *ptr, int len)
 {
