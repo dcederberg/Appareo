@@ -1,0 +1,107 @@
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : HTS1510 → dual-PWM demo (10 kHz) with watchdog & reset log
+  ******************************************************************************
+/**
+ * @brief Prints the cause of the last MCU reset via UART
+ */
+/**
+ *  Print cause of last MCU reset via UART
+ */@
+/**
+ *  Prints the cause of the last MCU reset via UART
+ */
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+  /** Configure Analogue filter
+  */
+  /** Configure Digital filter
+  */
+/**
+  * @brief IWDG Initialization Function
+  * @param None
+  * @retval None
+  */
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+/**
+ * @brief Prints the cause of the last MCU reset via UART
+ */
+/**
+ * @brief Read a raw 16-bit word from the HTS1510 sensor
+ * @param cmd I2C command sequence for the desired measurement
+ * @return Raw ADC value (0-32767) or 0 on error
+ */
+/**
+ * @brief Convert raw HTS1510 ADC counts to pressure in PSIA
+ * @param raw Raw ADC value in counts
+ * @return Pressure in PSIA
+ */
+/**
+ * @brief Convert raw HTS1510 ADC counts to temperature in Celsius
+ * @param raw Raw ADC value
+ * @return Temperature in degrees Celsius
+ */
+/**
+ * @brief Convert Celsius to Fahrenheit
+ * @param temp_c Temperature in degrees Celsius
+ * @return Temperature in degrees Fahrenheit
+ */
+/**
+ * @brief Update PWM duty cycles for pressure and temperature outputs
+ * @param pressure_psia Pressure value in PSIA
+ * @param temperature_C Temperature value in Celsius
+ */
+/**
+ * @brief Retarget printf to UART1
+ * @param file Ignored
+ * @param ptr Pointer to data
+ * @param len Length of data
+ * @return Number of bytes transmitted
+ */
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
