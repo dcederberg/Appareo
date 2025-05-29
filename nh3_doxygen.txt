@@ -1,3 +1,16 @@
+nh3.c Firmware Overview
+=======================
+
+This file lists the Doxygen comments generated from `nh3.c`, a simple
+STM32 firmware demo for the HTS1510 pressure and temperature sensor. The
+program polls the sensor, updates two 4–20 mA PWM outputs and logs data
+over UART while refreshing the watchdog.
+
+Main functions:
+- `press_raw_to_psia()` – convert raw ADC counts to pressure.
+- `temp_raw_to_C()` – convert raw ADC counts to temperature.
+- `pwm_update()` – update the PWM channels with new values.
+
 /**
   ******************************************************************************
   * @file           : main.c
